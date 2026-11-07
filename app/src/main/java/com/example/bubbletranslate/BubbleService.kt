@@ -96,11 +96,10 @@ class BubbleService : Service() {
     private fun setupBubble() {
         val size = (56 * density).toInt()
         bubble = TextView(this).apply {
-            text = "文"; textSize = 22f; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            typeface = Typeface.DEFAULT_BOLD; alpha = 0.9f
+            alpha = 0.92f
             layoutParams = android.view.ViewGroup.LayoutParams(size, size)
         }
-        paintBubble(Color.parseColor("#1E88E5"))
+        updateRing()
         bubbleLp = WindowManager.LayoutParams(
             size, size, overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -135,8 +134,16 @@ class BubbleService : Service() {
         wm.addView(bubble, bubbleLp)
     }
 
-    private fun paintBubble(color: Int) {
-        bubble.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
+    /** Wajah bubble = gambar pilihan; warna cincin: biru = siaga, hijau = otomatis ON, oranye = sedang menerjemahkan. */
+    private fun updateRing() {
+        val color = Color.parseColor(if (busy) "#FB8C00" else if (auto) "#43A047" else "#1E88E5")
+        val face = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(
+            resources, android.graphics.BitmapFactory.decodeResource(resources, R.drawable.bubble_face)
+        ).apply { isCircular = true }
+        val ring = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT); setStroke((3 * density).toInt(), color)
+        }
+        bubble.background = android.graphics.drawable.LayerDrawable(arrayOf(face, ring))
     }
 
     // ---------- Aksi ----------
@@ -151,7 +158,7 @@ class BubbleService : Service() {
 
     private fun setAuto(on: Boolean) {
         auto = on
-        paintBubble(Color.parseColor(if (on) "#43A047" else "#1E88E5"))
+        updateRing()
         autoJob?.cancel()
         if (on) {
             toast("Otomatis ON: halaman/chapter baru diterjemahkan sendiri")
@@ -210,20 +217,28 @@ class BubbleService : Service() {
             bubble.visibility = View.INVISIBLE      // supaya bubble & hasil lama tidak ikut di-OCR
             delay(300)
             val bmp = withContext(Dispatchers.Default) { cap.grab() }
-            bubble.visibility = View.VISIBLE; bubble.text = "…"
+            bubble.visibility = View.VISIBLE; updateRing()
             if (bmp == null) { toast("Gagal menangkap layar"); return true }
             val sigBefore = if (checkStale) withContext(Dispatchers.Default) { signature(bmp) } else null
 
             val prefs = getSharedPreferences("cfg", MODE_PRIVATE)
-            val boxes = ocr.run(bmp, prefs.getString("src", "auto")!!, prefs.getString("tgt", "id")!!) { toast(it) }
+            // Abaikan bagian atas (bar status/alamat browser) & bawah supaya tidak ikut diterjemahkan
+            val sbId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            val sbPx = if (sbId > 0) (resources.getDimensionPixelSize(sbId) * scale).toInt() else 0
+            val top = maxOf((bmp.height * prefs.getInt("cropTop", 10) / 100f).toInt(), sbPx)
+            val bottom = (bmp.height * prefs.getInt("cropBottom", 0) / 100f).toInt()
+            val ch = bmp.height - top - bottom
+            val area = if (top >= 0 && ch > 100) Bitmap.createBitmap(bmp, 0, top, bmp.width, ch) else bmp
+            val offY = if (area === bmp) 0 else top
+
+            val boxes = ocr.run(area, prefs.getString("src", "auto")!!, prefs.getString("tgt", "id")!!) { toast(it) }
 
             if (sigBefore != null) {
                 val now = withContext(Dispatchers.Default) { cap.grab()?.let { signature(it) } }
                 if (now != null && diff(now, sigBefore) > 6.0) return false
             }
             overlay.setItems(boxes.map {
-                val r = RectF(it.rect.left / scale, it.rect.top / scale, it.rect.right / scale, it.rect.bottom / scale)
-                TranslationOverlay.Item(r, it.text)
+                TranslationOverlay.Item(it.cx / scale, (it.cy + offY) / scale, it.w / scale, it.h / scale, it.angle, it.text)
             })
             if (boxes.isEmpty() && !auto) toast("Tidak ada teks yang perlu diterjemahkan")
             return true
@@ -233,7 +248,7 @@ class BubbleService : Service() {
             toast("Error: ${e.message}")
             return true
         } finally {
-            bubble.visibility = View.VISIBLE; bubble.text = "文"; busy = false
+            busy = false; bubble.visibility = View.VISIBLE; updateRing()
         }
     }
 

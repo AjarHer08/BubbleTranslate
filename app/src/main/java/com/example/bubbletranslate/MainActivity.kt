@@ -57,6 +57,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        fun seek(title: String, key: String, def: Int, max: Int): LinearLayout {
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val tv = TextView(this).apply { textSize = 15f; setPadding(0, pad / 2, 0, 4) }
+            val sb = SeekBar(this).apply { this.max = max; progress = prefs.getInt(key, def) }
+            tv.text = "$title: ${sb.progress}%"
+            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    tv.text = "$title: $p%"; prefs.edit().putInt(key, p).apply()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+            col.addView(tv); col.addView(sb); return col
+        }
+
         root.addView(TextView(this).apply { text = "Bubble Translate"; textSize = 24f })
         root.addView(TextView(this).apply {
             text = "Ketuk bubble sekali = mode otomatis ON (hijau). Halaman/chapter baru diterjemahkan sendiri.\nKetuk lagi = OFF.\nTekan lama = terjemahkan ulang halaman ini.\nSeret bubble untuk memindahkan."
@@ -64,6 +79,8 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(label("Bahasa sumber")); root.addView(spinner(sources, "src", "auto"))
         root.addView(label("Terjemahkan ke")); root.addView(spinner(targets, "tgt", "id"))
+        root.addView(seek("Abaikan bagian atas layar (bar status/alamat browser)", "cropTop", 10, 30))
+        root.addView(seek("Abaikan bagian bawah layar", "cropBottom", 0, 20))
         root.addView(Button(this).apply { text = "Mulai Bubble"; setOnClickListener { start() } })
         root.addView(Button(this).apply {
             text = "Hentikan Bubble"

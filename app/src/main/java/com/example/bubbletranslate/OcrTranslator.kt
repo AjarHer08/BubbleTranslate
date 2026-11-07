@@ -20,10 +20,14 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /** OCR -> deteksi bahasa otomatis -> terjemahan, semuanya on-device (ML Kit). */
 class OcrTranslator {
-    data class Box(val rect: Rect, val text: String)
+    /** Posisi pusat, ukuran, dan sudut kemiringan teks (derajat) pada bitmap yang di-OCR. */
+    data class Box(val cx: Float, val cy: Float, val w: Float, val h: Float, val angle: Float, val text: String)
 
     private val latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val zh = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
@@ -63,10 +67,22 @@ class OcrTranslator {
         val (lang, result) =
             if (source == "auto") detect(img) else source to recognizer(source).process(img).await()
 
+        val cjk = lang == "ja" || lang == "zh" || lang == "ko"
         val blocks = result.textBlocks.mapNotNull { b ->
             val r = b.boundingBox ?: return@mapNotNull null
             val t = b.text.replace("\n", " ").trim()
-            if (t.length < 2 || t.none { it.isLetter() }) null else Box(r, t)
+            if (t.length < 2 || t.none { it.isLetter() }) return@mapNotNull null
+            var angle = 0f; var w = r.width().toFloat(); var h = r.height().toFloat()
+            val p = b.cornerPoints
+            if (!cjk && p != null && p.size == 4) {   // teks Latin yang miring/diputar (mis. catatan vertikal di tepi halaman)
+                val dx = (p[1].x - p[0].x).toFloat(); val dy = (p[1].y - p[0].y).toFloat()
+                val a = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                if (abs(a) > 4f) {
+                    angle = a; w = hypot(dx, dy)
+                    h = hypot((p[2].x - p[1].x).toFloat(), (p[2].y - p[1].y).toFloat())
+                }
+            }
+            Box(r.exactCenterX(), r.exactCenterY(), w, h, angle, t)
         }
         if (blocks.isEmpty()) return emptyList()
 
@@ -91,7 +107,7 @@ class OcrTranslator {
             ready.add(key)
         }
         return blocks.map { b ->
-            Box(b.rect, try { tr.translate(b.text).await() } catch (e: Exception) { b.text })
+            b.copy(text = try { tr.translate(b.text).await() } catch (e: Exception) { b.text })
         }
     }
 
