@@ -13,8 +13,8 @@ terjemahan tepat di atas gelembung teks aslinya. Semua on-device (Google ML Kit)
 1. Buka app -> pilih bahasa sumber (Otomatis) & bahasa tujuan -> "Mulai Bubble".
 2. Izinkan "Tampil di atas aplikasi lain", notifikasi, dan rekam layar
    (Android 14+: pilih "Seluruh layar" bila ditanya).
-3. Buka aplikasi manga. Ketuk bubble = terjemahkan; ketuk lagi = hapus terjemahan.
-   Tekan lama bubble = mode otomatis (bubble hijau), terjemah ulang sendiri saat Anda selesai scroll.
+3. Buka aplikasi manga. Ketuk bubble = mode otomatis ON (hijau): halaman/chapter baru diterjemahkan sendiri. Ketuk lagi = OFF.
+   Tekan lama bubble = terjemahkan ulang halaman saat ini.
 4. Pertama kali pakai satu pasangan bahasa, model terjemahan diunduh (butuh internet, sekali saja).
 
 ## Catatan

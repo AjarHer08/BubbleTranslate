@@ -59,7 +59,7 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(TextView(this).apply { text = "Bubble Translate"; textSize = 24f })
         root.addView(TextView(this).apply {
-            text = "Ketuk bubble = terjemahkan halaman.\nTekan lama bubble = mode otomatis (terjemah sendiri saat Anda scroll).\nSeret bubble untuk memindahkan."
+            text = "Ketuk bubble sekali = mode otomatis ON (hijau). Halaman/chapter baru diterjemahkan sendiri.\nKetuk lagi = OFF.\nTekan lama = terjemahkan ulang halaman ini.\nSeret bubble untuk memindahkan."
             setPadding(0, pad / 2, 0, pad / 2)
         })
         root.addView(label("Bahasa sumber")); root.addView(spinner(sources, "src", "auto"))

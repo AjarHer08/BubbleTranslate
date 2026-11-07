@@ -109,7 +109,7 @@ class BubbleService : Service() {
 
         bubble.setOnTouchListener(object : View.OnTouchListener {
             var sx = 0; var sy = 0; var tx = 0f; var ty = 0f; var moved = false; var longFired = false
-            val longRun = Runnable { if (!moved) { longFired = true; toggleAuto() } }
+            val longRun = Runnable { if (!moved) { longFired = true; onLong() } }
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -140,21 +140,32 @@ class BubbleService : Service() {
     }
 
     // ---------- Aksi ----------
-    private fun onTap() {
+    /** Ketuk bubble: nyalakan / matikan mode otomatis. */
+    private fun onTap() { setAuto(!auto) }
+
+    /** Tekan lama bubble: terjemahkan ulang halaman saat ini (manual). */
+    private fun onLong() {
         if (busy) return
-        if (overlay.hasItems()) overlay.clear() else scope.launch { doTranslate() }
+        scope.launch { doTranslate(false) }
     }
 
-    private fun toggleAuto() {
-        auto = !auto
-        paintBubble(Color.parseColor(if (auto) "#43A047" else "#1E88E5"))
-        toast(if (auto) "Mode otomatis ON — terjemah sendiri saat halaman berganti" else "Mode otomatis OFF")
+    private fun setAuto(on: Boolean) {
+        auto = on
+        paintBubble(Color.parseColor(if (on) "#43A047" else "#1E88E5"))
         autoJob?.cancel()
-        if (auto) autoJob = scope.launch { autoLoop() }
+        if (on) {
+            toast("Otomatis ON: halaman/chapter baru diterjemahkan sendiri")
+            autoJob = scope.launch { autoLoop() }
+        } else {
+            toast("Otomatis OFF")
+            overlay.clear()
+        }
     }
 
-    /** Pantau layar; kalau berubah lalu diam (selesai scroll), terjemahkan ulang. */
+    /** Terjemahkan sekarang, lalu pantau layar. Saat layar berubah lalu diam, terjemahkan ulang. */
     private suspend fun autoLoop() {
+        while (busy) delay(100)
+        translateWithRetry()
         var baseline: IntArray? = null
         var prev: IntArray? = null
         while (currentCoroutineContext().isActive) {
@@ -166,8 +177,21 @@ class BubbleService : Service() {
             val changed = diff(sig, baseline) > 6.0
             val settled = diff(sig, prev) < 3.0
             prev = sig
-            if (changed && settled) { doTranslate(); baseline = null; prev = null }
+            if (changed) {
+                if (!settled) {
+                    // sedang scroll/pindah halaman: hapus terjemahan lama supaya tidak menempel di tempat salah
+                    if (overlay.hasItems()) overlay.clear()
+                } else {
+                    translateWithRetry()
+                    baseline = null; prev = null
+                }
+            }
         }
+    }
+
+    private suspend fun translateWithRetry() {
+        var tries = 0
+        while (!doTranslate(true) && tries++ < 3) delay(400)
     }
 
     private fun signature(b: Bitmap): IntArray {
@@ -177,8 +201,9 @@ class BubbleService : Service() {
     }
     private fun diff(a: IntArray, b: IntArray): Double { var t = 0L; for (i in a.indices) t += abs(a[i] - b[i]); return t.toDouble() / a.size }
 
-    private suspend fun doTranslate() {
-        val cap = capturer ?: return
+    /** Return false = layar berubah saat OCR berjalan (hasil basi, tidak digambar) sehingga perlu diulang. */
+    private suspend fun doTranslate(checkStale: Boolean): Boolean {
+        val cap = capturer ?: return true
         busy = true
         try {
             overlay.clear()
@@ -186,19 +211,27 @@ class BubbleService : Service() {
             delay(300)
             val bmp = withContext(Dispatchers.Default) { cap.grab() }
             bubble.visibility = View.VISIBLE; bubble.text = "…"
-            if (bmp == null) { toast("Gagal menangkap layar"); return }
+            if (bmp == null) { toast("Gagal menangkap layar"); return true }
+            val sigBefore = if (checkStale) withContext(Dispatchers.Default) { signature(bmp) } else null
 
             val prefs = getSharedPreferences("cfg", MODE_PRIVATE)
             val boxes = ocr.run(bmp, prefs.getString("src", "auto")!!, prefs.getString("tgt", "id")!!) { toast(it) }
+
+            if (sigBefore != null) {
+                val now = withContext(Dispatchers.Default) { cap.grab()?.let { signature(it) } }
+                if (now != null && diff(now, sigBefore) > 6.0) return false
+            }
             overlay.setItems(boxes.map {
                 val r = RectF(it.rect.left / scale, it.rect.top / scale, it.rect.right / scale, it.rect.bottom / scale)
                 TranslationOverlay.Item(r, it.text)
             })
             if (boxes.isEmpty() && !auto) toast("Tidak ada teks yang perlu diterjemahkan")
+            return true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             toast("Error: ${e.message}")
+            return true
         } finally {
             bubble.visibility = View.VISIBLE; bubble.text = "文"; busy = false
         }
@@ -230,7 +263,7 @@ class BubbleService : Service() {
         val n = NotificationCompat.Builder(this, CH)
             .setSmallIcon(android.R.drawable.ic_menu_search)
             .setContentTitle("Bubble Translate aktif")
-            .setContentText("Ketuk bubble = terjemah • tekan lama = otomatis")
+            .setContentText("Ketuk bubble = otomatis ON/OFF • tekan lama = terjemah ulang")
             .setOngoing(true)
             .addAction(0, "Berhenti", stop)
             .build()
